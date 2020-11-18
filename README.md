@@ -1,2 +1,2 @@
-# Welcome to Project New(s)ton!
-This project strive to convert news into actionable insights for Industry Performance Prediction.
+# Welcome to Project News-ton!
+This project strive to convert tons of news into actionable insights for Industry Performance Prediction.
