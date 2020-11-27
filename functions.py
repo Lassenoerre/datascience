@@ -109,7 +109,7 @@ def scrape_cnbc_articles(list_of_links):
                 title = soup_link.find('h1', class_='ArticleHeader-headline').get_text()
 
                 # The div (box) tag with a class of 'ArticleBody-articleBody'
-                article = soup_link.find('div', class_="ArticleBody-articleBody").get_text()
+                article = soup_link.find('div', class_='ArticleBody-articleBody').get_text()
 
                 # The date generated from the link. The link will always
                 # contain the date if it is an article. We save it as
@@ -118,7 +118,7 @@ def scrape_cnbc_articles(list_of_links):
 
                 # The link that have a class of 'ArticleHeader-eyebrow',
                 # which is their article topic.
-                topic = soup_link.find('a', class_="ArticleHeader-eyebrow").get_text()
+                topic = soup_link.find('a', class_='ArticleHeader-eyebrow').get_text()
 
                 # If they are all successfully gathered, we append it all
                 # into our list called df.
@@ -138,6 +138,35 @@ def scrape_cnbc_articles(list_of_links):
 
     # Lastly, we return a dataframe that contains all of our scraped articles.
     return pd.DataFrame(df)
+
+
+def collect_dataset(datasets_path):
+
+    """
+    This function takes all the files in a folder and tries to concatenate them
+    into one dataframe. This is of course only possible if your datasets is
+    the only csv-files in the folder and if they have the same data-structure.
+    We made this, because we scraped the links over several sessions.
+    """
+
+    # Import neccesary packages
+    import pandas as pd
+
+    # List all of our datasets in the folder
+    datasets = [ds for ds in datasets_path if '.csv' in ds]
+
+    # Load all the datasets in and append it to a list called 'frames'. We can
+    # use this list to concatenate all the dataframes according to the Pandas
+    # documentation.
+    frames = []
+    for dataset in datasets:
+        df = pd.read_csv(dataset, error_bad_lines=False, index_col=False)
+        df = df[df.columns[-5:]]
+        df.columns = ['Title', 'Topic', 'Date', 'Content', 'Link']
+        frames.append(df)
+
+    # Return a concatenated dataframe of all the dataframes.
+    return pd.concat(frames)
 
 
 #------------------------------------------------#
@@ -212,7 +241,7 @@ def cleaning(df,column):
 
     # Now, we iterate over all entries (articles in our case) in the column
     # and create a nlp object for each, which we can work with.
-    for article in nlp.pipe(df[column], disable=["parser"]):
+    for article in nlp.pipe(df[column], disable=['parser']):
 
         # Now, we store all tokens that pass our requirements in a list for each
         # article. That means that each article will have their own
@@ -241,7 +270,102 @@ def cleaning(df,column):
     # Lastly, we reconstruct all the articles from the tokens, simply by joining
     # all the tokens in each article_tok list. We achieve this by a simple
     # combination of map & lambda functions.
-    df["clean_articles"] = df["tokens"].map(lambda row: " ".join(row))
+    df['clean_articles'] = df['tokens'].map(lambda row: " ".join(row))
 
     # Returning the df that contains cleaned data and new columns.
+    return df
+
+
+def filter_articles_by_category(article_df, category_map_df):
+
+    """
+    This function takes a dataframe with a column of topics, and attempts to
+    remap the categories through a mapping dataframe. The mapping dataframe
+    consists of two columns: The first column is a list of the unique topics
+    in the original dataframe and the second column contains which each topic
+    should be remapped to. "Investment with Cramer" could eg. be remapped to
+    a more general topic as "Investing".
+    """
+
+    # instanciate an empty list
+    predetermined = []
+
+    # For all rows in article_df, check whether the topic is mapped in
+    # category_map_df
+    for topic in article_df["Topic"]:
+
+        # If the topic is in category_map_df, then take the remapped topic and
+        # store it in 'predetermined'-list
+        if topic in list(category_map_df["Topic"]):
+            predetermined.append(category_map_df[category_map_df["Topic"] == topic][1].to_numpy()[0])
+
+        # If it's not in the list, append "Other" to 'predetermined'-list
+        else:
+            predetermined.append("Other")
+
+    # Now, add predetermined-list to article_df as 'final_topic' and return the
+    # dataframe. The final_topic column will contain the remapped categories.
+    article_df['final_topic'] = predetermined
+    return article_df
+
+
+#------------------------------------------------#
+#                DATA PREPARATION                #
+#------------------------------------------------#
+
+
+def calculate_returns(prices, interval):
+
+    """
+    This function takes a dataset with prices for different securities over
+    time, where each row is a point in time and each column is a security.
+    It then calculates the returns for each security for a given interval
+    for at each date. It returns a dataset with dates as rows and securities as
+    columns, with returns for the given interval as values.
+    """
+
+    # Importing neccesary packages
+    import pandas as pd
+
+    # Converting all date-strings in date column to actual date objects. We can
+    # use these at a later stage to match returns to news articles.
+    prices['Dates'] = pd.to_datetime(prices['Dates']).dt.date
+
+    # Now we instanciate a new list to store our returns in.
+    date_index = []
+
+    # For every entry in the prices dataframe, try to fetch the current prices
+    # and the prices 'interval' periods in the future. If successful, get the
+    # return and append it to a list called 'returns'
+    for i in range(0,len(prices)):
+        try:
+            # Getting the current date of the entry
+            date = prices.iloc[i,0]
+
+            # Getting the prices for said date
+            prices_at_date = prices.iloc[i,1:]
+
+            # Getting the prices 'interval' periods in the future
+            prices_at_future_date = prices.iloc[i+interval,1:]
+
+            # Attempt to calculate the returns between the two periods.
+            return_at_date = list(prices_at_future_date / prices_at_date)
+
+            # Create a list called returns that contains the date. We can then
+            # append the returns in this list as well.
+            returns = [date]
+            for sector in return_at_date:
+                # For every column (sector) in our returns data, append it to
+                # the returns list.
+                returns.append(sector)
+
+            # Now, we can take the returns for each date and append it to our
+            # date_index list, which will make up our final dataframe in the end.
+            date_index.append(returns)
+        except:
+            # If we can't calculate the returns, simply pass the date.
+            pass
+
+    # Now, convert date_index to a dataframe and return the dataframe.
+    df = pd.DataFrame(date_index, columns = prices.columns)
     return df
