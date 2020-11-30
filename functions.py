@@ -23,7 +23,7 @@ def get_links_to_scrape(start_year, end_year):
     # to only parse the relevant part of the site: ALl the article links.
     strainer = SoupStrainer('a', class_ = 'SiteMapArticleList-link')
 
-    # We instanciate an empty list that we can store all the links in.
+    # We instantiate an empty list that we can store all the links in.
     article_links = []
 
     # For every day, in every month in every year, construct a link
@@ -52,7 +52,7 @@ def get_links_to_scrape(start_year, end_year):
                 # Now we make use of the find_all function in BeautifulSoup
                 # that simply generates a list of codeblocks that match the
                 # query. This means we get a list of links, and we store the
-                # href (actual links) in our instanciated list from before.
+                # href (actual links) in our instantiated list from before.
                 links = soup.find_all('a', class_='SiteMapArticleList-link')
                 if links != []:
                     for a_link in links:
@@ -75,9 +75,9 @@ def scrape_cnbc_articles(list_of_links):
     from bs4 import BeautifulSoup, SoupStrainer
     import pandas as pd
 
-    # First, we instanciate an empty list, that we can append the scraped
-    # data to. Then we instanciate an index, which enables us to follow the
-    # scrapers progress, and lastly, we instanciate a request Session, which
+    # First, we instantiate an empty list, that we can append the scraped
+    # data to. Then we instantiate an index, which enables us to follow the
+    # scrapers progress, and lastly, we instantiate a request Session, which
     # minimizes our load time per request by little bit, but that time will
     # accumulate for all our links and should have quite an impact.
     df = []
@@ -184,11 +184,9 @@ def remove_clutter(text):
     # Importing neccesary packages
     import re
 
-    # Trying to remove special unicode characters. ord() returns the unicode
-    # index of the character - We then check that whether that character
-    # index if less than 127. If it is so, it is not a special character
-    # and we include it.
-    text = ''.join([x for x in text if ord(x) < 127])
+    # Trying to remove special unicode characters. Our regular expression finds
+    # any substrings that starts with a \x followed by two char/num combinations
+    text = re.sub(r'\\x[A-Za-z0-9_]{2}', '', text)
 
     # Trying to remove video annotation. We are using a regular expression,
     # to find any pattern that matches the word video followed by a
@@ -226,7 +224,12 @@ def cleaning(df,column):
     additional columns (Tokens, cleaned_text) as well.
     """
 
-    # First we instanciate a list that we can append all processed tokens in.
+    # Import neccesary packages
+    import spacy
+    nlp = spacy.load('en_core_web_sm')
+    import pandas as pd
+
+    # First we instantiate a list that we can append all processed tokens in.
     # This makes it possible for us to append it to the dataframe at a later
     # stage.
     tokens = []
@@ -287,7 +290,7 @@ def filter_articles_by_category(article_df, category_map_df):
     a more general topic as "Investing".
     """
 
-    # instanciate an empty list
+    # instantiate an empty list
     predetermined = []
 
     # For all rows in article_df, check whether the topic is mapped in
@@ -331,7 +334,7 @@ def calculate_returns(prices, interval):
     # use these at a later stage to match returns to news articles.
     prices['Dates'] = pd.to_datetime(prices['Dates']).dt.date
 
-    # Now we instanciate a new list to store our returns in.
+    # Now we instantiate a new list to store our returns in.
     date_index = []
 
     # For every entry in the prices dataframe, try to fetch the current prices
@@ -369,3 +372,139 @@ def calculate_returns(prices, interval):
     # Now, convert date_index to a dataframe and return the dataframe.
     df = pd.DataFrame(date_index, columns = prices.columns)
     return df
+
+def rolling_articles(start_date, end_date, df, start_range, end_range):
+
+    """
+    Just like the rolling returns, this function concatenates all the articles
+    into a dataframe consisting of dates as rows. Intially, we played with the
+    thought of concatenating the articles rolling with a weeks lag, which is
+    why it supprts end and start range, however this demanded too much
+    compututional power for our time scope, which is why we simply used
+    concatenated them daily.
+    """
+
+    # Importing neccesary packages
+    from datetime import timedelta, datetime
+    import ast
+
+    # Generating a list of dates that we can use to filter the articles from.
+    date_list = [start_date + timedelta(days=x) for x in range(0,int((end_date - start_date).days)+1)]
+
+    # Converting all date-strings in date column to actual date objects
+    df['Date'] = pd.to_datetime(df['Date']).dt.date
+
+    # Generate new dataframe and instantiating a count variable that we can use
+    # to display the progress whilst running it.
+    date_index = []
+    count = 0
+
+    # For every date in our generated list of dates, find all the articles that
+    # lies within the range. Then take their tokens (because of re-import,
+    # these were actually a string) and convert to a string objects without
+    # list characters. Also, if any date has more than 30 articles,
+    # just take the 30 first articles. We integrated the last condition because
+    # of diminishing marginal benefit compared to the extra compututional effort.
+    for date in date_list:
+
+        # Here we get the articles
+        articles = df[(df['Date'] <= date + timedelta(days=end_range)) & (df['Date'] >= date + timedelta(days=start_range))].head(30*(1+end_range-start_range))
+        count += len(articles)
+        processed = ""
+        for article in articles['tokens']:
+            try:
+                # Here we attempt to remove the list characters. I didn't matter
+                # if we passed our articles as tokens or strings to gensim's
+                # Word2Vec algo, so we chose as string for the ease of it.
+                article = str(article).replace("[", "").replace("]", "").replace(",", "").replace("'","")
+                processed += article
+                processed += " "
+            except:
+                pass
+        # Now, append the date and the related articles to our date_index list,
+        # which we can turn into a dataframe, once it is returned.
+        date_index.append([date, processed])
+        print(f'{date}: {count}')
+
+    # Finally, return the date_index
+    return date_index
+
+#------------------------------------------------#
+#                MODEL VALIDATION                #
+#------------------------------------------------#
+
+def walk_forward_validation(model, epochs, x, y, step_size, train_steps, val_window):
+
+    """
+    This function takes a model, specifically our neural net with multiple
+    LSTM-layers, the desired number of epochs, x data, y data, desired step
+    size, desired number of steps that should be trained per round, and the
+    desired validation window. It then trains a model through a Walk Forward
+    Validation method that stores MSE-scores for both training and validation
+    steps over time. It returns our backtesting predicted y, our trained y's
+    and our MSE-scores.
+    """
+
+    # First, we import the required packages. We only have one dependency which
+    # we uses to calculate the mean squared error each period
+    from sklearn.metrics import mean_squared_error
+
+    # Now we instantiate a couple of things. First we define how many records
+    # that we have - We use this to loop through our data. Then we define the
+    # initial training size, which gives us the point in time where we
+    # should start over test. Then we instantiate three empty lists that we
+    # later will use to store our results.
+    n_records = len(x)
+    n_init_train = step_size * train_steps
+    train_pred = []
+    val_pred = []
+    mse_scores = []
+
+    # This for loop goes from the starting point in time (as defined above)
+    # to the end of our data and step through the data, enabling us to make the
+    # walk forward validation. Our current point in time, i, will jump by the
+    # step size each iteration.
+    for i in range(n_init_train, n_records, step_size):
+
+        # We know that the starting point for the training data, must be the
+        # current point in time minus the training period.
+        train_from = i-n_init_train
+
+        # We need to train it to the current point in time.
+        train_to = i
+
+        # We then need to validate starting from tomorrow relative to
+        # the current point in time.
+        test_from = i+1
+        # And validate the desired window in the future relative to the
+        # point in time
+        test_to = i+val_window
+
+        # Now we can split our data at this point in time
+        x_train, x_test = x[train_from:train_to], x[test_from:test_to]
+        y_train, y_test = y[train_from:train_to], y[test_from:test_to]
+
+        # And then use the data to train the model
+        print(f'Train from {i-n_init_train} to {i} and validate for {i+1} to {i+val_window}')
+        model.fit(x_train, y_train, epochs=epochs, verbose=1)
+
+        # Here, we can store the training phase's historical predictions of seen y.
+        y_train_pred = model.predict(x_train)
+        for y_train_day in y_train_pred:
+            train_pred.append(y_train_day.tolist())
+
+        # Here, we store the validation phase's future predictions of unseen y.
+        y_pred = model.predict(x_test)
+        for y_test_day in y_pred:
+            val_pred.append(y_test_day.tolist())
+
+        # Here, we calculate MSE for both and append it to our MSE-scores list.
+        train_mse = mean_squared_error(y_train,y_train_pred)
+        val_mse = mean_squared_error(y_test,y_pred)
+        mse_scores.append([train_mse, val_mse])
+
+        print(f'     train: {train_mse} \nvalidation: {val_mse} \n')
+
+    # Lastly, we return the training predictions, the actual validation
+    # predictions as well as the observed MSE-scores.
+    return train_pred, val_pred, mse_scores
