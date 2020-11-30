@@ -5,4 +5,4 @@ This project strive to convert news into actionable insights for industry perfor
 - The datasets folder
 - functions.py
 - final_notebook.ipynb
-- Executable notebook.ipynb (For demonstration purposes - Our script is basically scattered across many notebooks for now)
+- Executable notebook.ipynb (For demonstration purposes - Our script is basically scattered across many notebooks for now and it would take +100 hours of runtime to execute)
